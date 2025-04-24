@@ -222,7 +222,7 @@ def click_back_to_list():
 
         except Exception as e:
             print(f"❌ 목록 복귀 실패: {type(e).__name__} - {e}")
-            return print("시스템을 종료합니다.") ; quit()
+            return print("시스템을 종료합니다.")
 
 def safe_driver_back(max_retries=5, wait_seconds=2):
     """
@@ -297,6 +297,12 @@ def get_work_confirmation_documents():
             print(f"✅ 수집 완료: {doc_number}")
             click_receipt_and_confirm()                  
             time.sleep(1)
+
+            # 마지막 문서 구별
+            if len(document_elements) == 1:
+                print(f"✅ 마지막 문서 처리 완료: {doc_number}")
+                break
+
             click_back_to_list()
             time.sleep(1)
             document_elements = driver.find_elements(By.XPATH, "//td[@class='subject']/a")
