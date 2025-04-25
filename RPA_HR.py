@@ -408,7 +408,7 @@ def precheck_and_save_attendance_possibility(excel_path: str, json_path: str, ou
 
     def check_row(row):
         #예외설정(장태근, 김규환)
-        if row["성명"] == "장태근" or row["성명"] == "김규환" :
+        if row["성명"] == "장태근" or row["성명"] == "김규환" or row["성명"] == "이법훈" or row["성명"] == "배종태" or row["성명"] == "천국식" or row["성명"] == "손성호" :
             return "예외설정"
 
         # 출근/퇴근 필수 체크
@@ -764,7 +764,7 @@ precheck_and_save_attendance_possibility(
     "작업확인서_선별결과.xlsx"
 )
 login_hrms()
-# set_hrms_role_if_needed()
+set_hrms_role_if_needed()
 go_to_attendance_management()
 
 # 파일 읽기
@@ -806,7 +806,9 @@ for idx, row in df.iterrows():
     save_attendance(df, idx)
 
 #이전 파일 삭제
-os.remove("작업확인서_신청결과.xlsx","작업확인서_신청결과_정리자동.xlsx")
+# for f in ["작업확인서_신청결과.xlsx", "작업확인서_신청결과_정리자동.xlsx"]:
+#     if os.path.exists(f):
+#         os.remove(f)
     
 #최종 파일
 df.to_excel("작업확인서_처리결과.xlsx", index=False)
