@@ -17,6 +17,17 @@ import time, os, re, json, sys, openpyxl
 LOGIN_GW_URL = "https://office.ms-global.com/login"
 LOGIN_HRMS_URL = "https://hrms.ms-global.com/login.htm"
 
+#휴일근무, 시간외근무 패턴 로딩
+try:
+    with open("patterns.json", "r", encoding="utf-8") as f:
+        pattern_data = json.load(f)
+
+    holidaywork_patterns = pattern_data["holidaywork_patterns"]
+    overtime_patterns = pattern_data["overtime_patterns"]
+except Exception as e:
+    print(f"❌ patterns.json 로딩 실패: {e}")
+    sys.exit(1)
+
 # ──────────────────────────────────────────────────────────────
 # 공통 유틸
 # ──────────────────────────────────────────────────────────────
@@ -37,7 +48,7 @@ DURATION_MAPPING = {
     "minuit_over_time":       ("특근심야정취",     "minuit_over_time"),
     "holiday_over_time":      ("특근연장",         "holiday_over_time"),
     "extra_minuit_over_time": ("특근심야연장",     "extra_minuit_over_time"),
-    "idleness_time":          ("유휴",             "idleness_time"),
+    "work_support":           ("유급휴가",             "work_support"),
     "late_time":              ("지각",             "late_time")
 }
 
@@ -389,6 +400,43 @@ def format_excel(input_path, output_path):
 
     return combined_df
 
+def is_special_pattern_exception(row, pattern_start, pattern_end):
+    """
+    특정 패턴의 시간외근무 또는 휴일근무가 '정상 출근'으로 인정되도록 예외 처리.
+
+    조건:
+    - 시간외근무: 시작 00:20, 종료 01:20/02:20, 출근이 15:40 이전
+    - 휴일근무: 시작 00:20, 출근이 23:00 이후 (전날 출근 간주)
+    """
+    try:
+        goto_time = str_to_time(row["출근"])
+        getoff_time = str_to_time(row["퇴근"])
+        if not goto_time or not getoff_time:
+            return False
+
+        # [1] 시간외근무: 야간 연장 예외
+        if (
+            row["구분"] == "시간외근무" and
+            pattern_start == str_to_time("00:20") and
+            pattern_end in [str_to_time("01:20"), str_to_time("02:20")] and
+            goto_time <= str_to_time("15:40") and
+            getoff_time >= pattern_end
+        ):
+            return True
+
+        # [2] 휴일근무: 전날 출근 예외
+        if (
+            row["구분"] == "휴일근무" and
+            pattern_start == str_to_time("00:20") and
+            goto_time >= str_to_time("23:00") and
+            getoff_time >= pattern_end
+        ):
+            return True
+
+        return False
+    except:
+        return False
+
 def precheck_and_save_attendance_possibility(excel_path: str, json_path: str, output_path: str):
     """
     '작업확인서_신청결과_정리자동.xlsx'의 구분(B열)에 따라
@@ -397,7 +445,7 @@ def precheck_and_save_attendance_possibility(excel_path: str, json_path: str, ou
     """
     df = pd.read_excel(excel_path)
 
-    for col in ["평일정취", "평일연장", "평일심야연장", "특근정취", "특근심야정취", "특근연장", "특근심야연장", "유휴", "지각"]:
+    for col in ["평일정취", "평일연장", "평일심야연장", "특근정취", "특근심야정취", "특근연장", "특근심야연장", "유급휴가", "지각"]:
         df[col] = ""
 
     with open(json_path, "r", encoding="utf-8") as f:
@@ -408,7 +456,7 @@ def precheck_and_save_attendance_possibility(excel_path: str, json_path: str, ou
 
     def check_row(row):
         #예외설정(장태근, 김규환)
-        if row["성명"] == "장태근" or row["성명"] == "김규환" or row["성명"] == "이법훈" or row["성명"] == "배종태" or row["성명"] == "천국식" or row["성명"] == "손성호" :
+        if row["성명"] in["장태근", "김규환", "이법훈", "배종태", "천국식", "손성호"]:
             return "예외설정"
 
         # 출근/퇴근 필수 체크
@@ -430,26 +478,44 @@ def precheck_and_save_attendance_possibility(excel_path: str, json_path: str, ou
             return "휴일,시간외근무 외 패턴"
 
         matched = False
+        failure_reasons = [] # 최종 실패 이유 수집
 
         # 패턴 비교
         for pattern in patterns:
             pattern_start = str_to_time(pattern["start"])
             pattern_end = str_to_time(pattern["end"])
 
-            if (
-                start_time and end_time and goto_time and getoff_time and
-                goto_time < pattern_start and
-                getoff_time >= pattern_end and
-                work_time in pattern["work_times"]
+            reasons = [] # 현재 패턴에 대한 실패 이유
+
+            if start_time != pattern_start:
+                reasons.append("시작시간 불일치")
+            if end_time != pattern_end:
+                reasons.append("종료시간 불일치")
+            if work_time not in pattern["work_times"]:
+                reasons.append("신청시간 불일치")
+            if not (
+                 (goto_time <= pattern_start and getoff_time >= pattern_end) or # 엑셀 '출근'이 패턴 '시작' 초과,  엑셀 '퇴근'이 패턴 '종료' 이상이거나
+                is_special_pattern_exception(row, pattern_start, pattern_end) # 예외패턴이면
             ):
+                reasons.append("지각,조퇴 기타사유")
+
+            if not reasons:
+                #모든 조건 통과!
                 for key, value in pattern["duration"].items():
                     if key in DURATION_MAPPING:
                         excel_col, _ = DURATION_MAPPING[key]
                         df.at[row.name, excel_col] = value
                 matched = True
                 break
-
-        return "작업가능" if matched else "패턴불일치"
+            else:
+                failure_reasons.append(reasons) # 현재 패턴 실패이유 누적
+                
+        if matched:
+            return "작업가능"
+        else:
+            if failure_reasons:
+                shortest_reason = min(failure_reasons, key=lambda x: len(x))
+                return f"패턴불일치({', '.join(shortest_reason)})"
 
     df["작업여부"] = df.apply(check_row, axis=1)
     df.to_excel(output_path, index=False)
@@ -543,23 +609,6 @@ def go_to_attendance_management():
         print("✅ '일일근태관리' 메뉴로 이동 완료!")
     except Exception as e:
         print(f"❌ 프레임 로딩 실패: {e}")
-
-#휴일근무, 시간외근무 패턴 로딩
-with open("patterns.json", "r", encoding="utf-8") as f:
-    pattern_data = json.load(f)
-
-holidaywork_patterns = pattern_data["holidaywork_patterns"]
-overtime_patterns = pattern_data["overtime_patterns"]
-
-def match_pattern(row, patterns):
-    for pattern in patterns:
-        if (row["G시작"] == pattern["start"] and
-            row["G종료"] == pattern["end"] and
-            row["G작업시간"] in pattern["work_times"]):
-            
-            if row["G출근"] <= pattern["start"] and row["G퇴근"] >= pattern["end"]:
-                return pattern["duration"]
-    return None
 
 def search_user_in_hrms(emp_no: str, base_date: str):
     try:
@@ -733,13 +782,6 @@ def save_attendance(df: pd.DataFrame, idx: int):
     except Exception as e:
         df.at[idx, "완료여부"] = "실패"
         print(f"❌ 저장 실패: {e}")
-
-def send_summary_email():
-    print("📧 [6] 처리 결과 이메일 발송 중...")
-    # 작업 성공/실패 여부 정리 및 인사담당자에게 이메일 전송
-
-
-
 
 # ──────────────────────────────────────────────────────────────
 # 메인 실행 흐름
