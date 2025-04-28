@@ -70,7 +70,7 @@
 				"work_extra_time": 8.0,
 				"holiday_over_time": 5.67,
 				"extra_minuit_over_time": 2.33,
-				"idleness_time": 8.0
+				"work_support": 8.0
 			}
 		}
 	],
@@ -128,7 +128,7 @@
 				"work_time": 8.0,
 				"overtime": 5.67,
 				"night_time": 2.33,
-				"idleness_time": 8.0
+				"work_support": 8.0
 			}
 		}
 	]
