@@ -44,6 +44,7 @@ DURATION_MAPPING = {
     "work_time":              ("평일정취",         "work_time"),
     "overtime":               ("평일연장",         "overtime"),
     "night_time":             ("평일심야연장",     "night_time"),
+    "extend_time":            ("평일심야정취",     "extend_time"),
     "work_extra_time":        ("특근정취",         "work_extra_time"),
     "minuit_over_time":       ("특근심야정취",     "minuit_over_time"),
     "holiday_over_time":      ("특근연장",         "holiday_over_time"),
@@ -419,7 +420,7 @@ def is_special_pattern_exception(row, pattern_start, pattern_end):
             row["구분"] == "시간외근무" and
             pattern_start == str_to_time("00:20") and
             pattern_end in [str_to_time("01:20"), str_to_time("02:20")] and
-            goto_time <= str_to_time("15:40") and
+            goto_time < str_to_time("15:40") and
             getoff_time >= pattern_end
         ):
             return True
@@ -445,7 +446,7 @@ def precheck_and_save_attendance_possibility(excel_path: str, json_path: str, ou
     """
     df = pd.read_excel(excel_path)
 
-    for col in ["평일정취", "평일연장", "평일심야연장", "특근정취", "특근심야정취", "특근연장", "특근심야연장", "유급휴가", "지각"]:
+    for col in ["평일정취", "평일연장", "평일심야정취", "평일심야연장", "특근정취", "특근심야정취", "특근연장", "특근심야연장", "유급휴가", "지각"]:
         df[col] = ""
 
     with open(json_path, "r", encoding="utf-8") as f:
@@ -494,7 +495,7 @@ def precheck_and_save_attendance_possibility(excel_path: str, json_path: str, ou
             if work_time not in pattern["work_times"]:
                 reasons.append("신청시간 불일치")
             if not (
-                 (goto_time <= pattern_start and getoff_time >= pattern_end) or # 엑셀 '출근'이 패턴 '시작' 초과,  엑셀 '퇴근'이 패턴 '종료' 이상이거나
+                 (goto_time < pattern_start and getoff_time >= pattern_end) or # 엑셀 '출근'이 패턴 '시작' 초과,  엑셀 '퇴근'이 패턴 '종료' 이상이거나
                 is_special_pattern_exception(row, pattern_start, pattern_end) # 예외패턴이면
             ):
                 reasons.append("지각,조퇴 기타사유")
@@ -720,15 +721,6 @@ def apply_attendance_hours(row: pd.Series):
     except Exception as e:
         print(f"❌ IBSheet 로드 실패: {e}")
         return
-
-    # 헤더 → HRMS 필드명 매핑
-    column_to_savename = {
-        "특근정취": "work_extra_time",
-        "특근심야": "minuit_over_time",
-        "특근심야연장": "extra_minuit_over_time",
-        "평일연장": "overtime",
-        "평일심야연장": "night_time"
-    }
 
     if row["작업여부"] != "작업가능":
         print(f"⏭️ 작업불가: {row['성명']} / {row['사번']}")
