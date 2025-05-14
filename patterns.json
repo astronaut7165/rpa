@@ -125,6 +125,7 @@
 			"end": "00:20",
 			"work_times": [ "1600", "1720" ],
 			"duration": {
+				"extend_time": 0.0,
 				"work_time": 8.0,
 				"overtime": 5.67,
 				"night_time": 2.33,
